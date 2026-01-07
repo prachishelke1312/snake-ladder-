@@ -1,0 +1,264 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import random
+from collections import deque
+import os
+import time
+import math
+
+# -----------------------
+# Constants
+# -----------------------
+BOARD_ROWS = 10
+BOARD_COLS = 10
+CELL_SIZE = 70
+TOKEN_RADIUS = 20
+PLAYER_COLORS = ["red", "blue", "green", "orange"]
+
+# Snakes and Ladders
+JUMPS = {
+    16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60,
+    87: 24, 93: 73, 95: 75, 98: 78,
+    1: 38, 4: 14, 9: 31, 21: 42, 28: 84,
+    36: 44, 51: 67, 71: 91, 80: 100
+}
+
+# -----------------------
+# Utilities
+# -----------------------
+def index_to_coords(index):
+    n = index - 1
+    row = n // BOARD_COLS
+    col = n % BOARD_COLS
+    y = (BOARD_ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2
+    if row % 2 == 0:
+        x = col * CELL_SIZE + CELL_SIZE / 2
+    else:
+        x = (BOARD_COLS - 1 - col) * CELL_SIZE + CELL_SIZE / 2
+    return x, y
+
+def animate_move(canvas, token_id, path_coords, delay=0.05):
+    for x, y in path_coords:
+        canvas.coords(token_id, x - TOKEN_RADIUS, y - TOKEN_RADIUS, x + TOKEN_RADIUS, y + TOKEN_RADIUS)
+        canvas.update()
+        time.sleep(delay)
+
+# -----------------------
+# Main GUI Class
+# -----------------------
+class SnakeLadderGUI:
+    def __init__(self, root):
+        self.root = root
+        root.title("Snake and Ladder")
+        root.attributes('-fullscreen', True)
+
+        # Load logos
+        self.college_logo = self.load_logo("college_logo.png", 60)
+        self.naac_logo = self.load_logo("naac_logo.png", 60)
+
+        self.players = []
+        self.player_queue = deque()
+        self.tokens = {}
+        self.current_player = None
+        self.game_running = False
+
+        self.create_header()
+        self.create_main_frame()
+        self.draw_board()
+        self.draw_snakes_ladders()
+
+    def load_logo(self, filename, size):
+        if os.path.exists(filename):
+            try:
+                img = tk.PhotoImage(file=filename)
+                img = img.subsample(max(1,img.width()//size), max(1,img.height()//size))
+                return img
+            except:
+                return None
+        return None
+
+    # -----------------------
+    # Header
+    # -----------------------
+    def create_header(self):
+        header = tk.Frame(self.root, bg="#e8f5e9")
+        header.pack(fill="x")
+
+        if self.college_logo:
+            tk.Label(header, image=self.college_logo, bg="#e8f5e9").pack(side="left", padx=20)
+        else:
+            tk.Label(header, text="[College Logo]", bg="#e8f5e9").pack(side="left", padx=20)
+
+        title_frame = tk.Frame(header, bg="#e8f5e9")
+        title_frame.pack(side="left", expand=True)
+        tk.Label(title_frame, text="KJS Educational Institute", font=("Helvetica", 20, "bold"), bg="#e8f5e9").pack()
+        tk.Label(title_frame, text="Trinity College of Engineering and Research", font=("Helvetica", 16, "bold"), bg="#e8f5e9").pack()
+        tk.Label(title_frame, text="Computer Engineering Department", font=("Helvetica", 13), bg="#e8f5e9").pack()
+        tk.Label(title_frame, text="Snake and Ladder - Data Structure Project", font=("Helvetica", 12, "italic"), bg="#e8f5e9").pack()
+
+        if self.naac_logo:
+            tk.Label(header, image=self.naac_logo, bg="#e8f5e9").pack(side="right", padx=20)
+        else:
+            tk.Label(header, text="[NAAC Logo]", bg="#e8f5e9").pack(side="right", padx=20)
+
+    # -----------------------
+    # Main Frame
+    # -----------------------
+    def create_main_frame(self):
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(expand=True, fill="both")
+
+        self.canvas = tk.Canvas(main_frame, bg="#f9fbe7")
+        self.canvas.pack(side="left", expand=True, fill="both", padx=20, pady=20)
+
+        self.side_panel = tk.Frame(main_frame, width=250, bg="#f1f8e9")
+        self.side_panel.pack(side="right", fill="y", padx=10, pady=20)
+
+        tk.Label(self.side_panel, text="Players:", font=("Arial",12,"bold"), bg="#f1f8e9").pack(pady=(10,5))
+        self.player_var = tk.IntVar(value=2)
+        ttk.Combobox(self.side_panel, textvariable=self.player_var, values=[2,3,4], width=5, state="readonly").pack()
+
+        tk.Button(self.side_panel, text="Start Game", command=self.start_game, bg="#4CAF50", fg="white", font=("Arial",12,"bold")).pack(pady=10, fill="x")
+        tk.Button(self.side_panel, text="Reset Board", command=self.reset_board, bg="#FFC107", font=("Arial",12,"bold")).pack(pady=5, fill="x")
+        tk.Button(self.side_panel, text="Quit", command=self.root.destroy, bg="#F44336", fg="white", font=("Arial",12,"bold")).pack(pady=5, fill="x")
+
+        tk.Label(self.side_panel, text="Dice:", font=("Arial",14,"bold"), bg="#f1f8e9").pack(pady=(20,5))
+        self.dice_lbl = tk.Label(self.side_panel, text="-", font=("Helvetica",18,"bold"), bg="#f1f8e9")
+        self.dice_lbl.pack()
+        self.roll_btn = tk.Button(self.side_panel, text="Roll Dice", command=self.roll_dice, state="disabled", bg="#2196F3", fg="white", font=("Arial",12,"bold"))
+        self.roll_btn.pack(pady=10, fill="x")
+
+        self.turn_lbl = tk.Label(self.side_panel, text="Turn: -", font=("Arial",12,"bold"), bg="#f1f8e9")
+        self.turn_lbl.pack(pady=10)
+        self.info_lbl = tk.Label(self.side_panel, text="Welcome! Click Start to begin.", wraplength=230, font=("Arial",10,"italic"), bg="#f1f8e9")
+        self.info_lbl.pack(pady=10)
+
+    # -----------------------
+    # Board Drawing
+    # -----------------------
+    def draw_board(self):
+        self.canvas.delete("all")
+        for r in range(BOARD_ROWS):
+            for c in range(BOARD_COLS):
+                x1 = c*CELL_SIZE
+                y1 = r*CELL_SIZE
+                x2 = x1+CELL_SIZE
+                y2 = y1+CELL_SIZE
+                color = "#fff9c4" if (r+c)%2==0 else "#f0f4c3"
+                self.canvas.create_rectangle(x1,y1,x2,y2,fill=color,outline="#bdbdbd")
+        for i in range(1,101):
+            x,y = index_to_coords(i)
+            self.canvas.create_text(x, y, text=str(i), font=("Arial",9,"bold"))
+
+    def draw_snakes_ladders(self):
+        for s,d in JUMPS.items():
+            sx,sy = index_to_coords(s)
+            ex,ey = index_to_coords(d)
+            if s<d:  # ladder
+                self.canvas.create_line(sx,sy,ex,ey,width=5,fill="#795548")
+            else:  # snake as smooth curve
+                points=[]
+                steps=10
+                for i in range(steps+1):
+                    t=i/steps
+                    x = sx + (ex-sx)*t
+                    y = sy + (ey-sy)*t + 15*math.sin(t*math.pi*4)
+                    points.append(x)
+                    points.append(y)
+                self.canvas.create_line(points,width=10,fill="#4CAF50",smooth=True)
+
+    # -----------------------
+    # Game Logic
+    # -----------------------
+    def start_game(self):
+        if self.game_running: return
+        pcount = int(self.player_var.get())
+        self.players = [{"name":f"Player {i+1}", "pos":0, "color":PLAYER_COLORS[i], "id":i} for i in range(pcount)]
+        self.player_queue = deque(self.players)
+        self.tokens.clear()
+        for p in self.players:
+            x,y = index_to_coords(1)
+            offset = (p["id"]-(pcount-1)/2)*25
+            tid = self.canvas.create_oval(x-TOKEN_RADIUS+offset, y-TOKEN_RADIUS, x+TOKEN_RADIUS+offset, y+TOKEN_RADIUS, fill=p["color"], outline="black")
+            self.tokens[p["id"]] = tid
+        self.game_running = True
+        self.current_player = self.player_queue[0]
+        self.roll_btn.config(state="normal")
+        self.update_turn_label()
+        self.info_lbl.config(text="Game Started!")
+
+    def update_tokens_position(self):
+        pos_counts = {}
+        for p in self.players:
+            pos_counts[p["pos"]] = pos_counts.get(p["pos"],0)+1
+        same_pos_index = {}
+        for p in self.players:
+            count = pos_counts[p["pos"]]
+            idx = same_pos_index.get(p["pos"],0)
+            same_pos_index[p["pos"]] = idx+1
+            x,y = index_to_coords(p["pos"] if p["pos"]>0 else 1)
+            offset = (idx - (count-1)/2)*25
+            self.canvas.coords(self.tokens[p["id"]], x-TOKEN_RADIUS+offset, y-TOKEN_RADIUS, x+TOKEN_RADIUS+offset, y+TOKEN_RADIUS)
+
+    def update_turn_label(self):
+        if self.current_player:
+            self.turn_lbl.config(text=f"Turn: {self.current_player['name']} ({self.current_player['color']})")
+
+    def roll_dice(self):
+        if not self.game_running: return
+        dice = random.randint(1,6)
+        self.dice_lbl.config(text=str(dice))
+        p = self.current_player
+        old = p["pos"]
+        new = old + dice
+        if new>100:
+            self.info_lbl.config(text=f"{p['name']} needs exact roll to finish.")
+        else:
+            path=[]
+            for step in range(old+1,new+1):
+                x,y=index_to_coords(step)
+                path.append((x,y))
+            animate_move(self.canvas, self.tokens[p["id"]], path)
+            p["pos"]=new
+            if new in JUMPS:
+                dest=JUMPS[new]
+                path=[]
+                step_range = range(new,dest+1) if dest>new else range(new,dest-1,-1)
+                for s in step_range:
+                    x,y=index_to_coords(s)
+                    path.append((x,y))
+                animate_move(self.canvas,self.tokens[p["id"]], path,0.03)
+                p["pos"]=dest
+                self.info_lbl.config(text=f"{p['name']} {'climbed ladder' if dest>new else 'bitten by snake'} to {dest}")
+            else:
+                self.info_lbl.config(text=f"{p['name']} moved to {p['pos']}")
+
+            self.update_tokens_position()
+            if p["pos"]==100:
+                messagebox.showinfo("Winner",f"{p['name']} wins!")
+                self.reset_board()
+                return
+        if dice!=6:
+            self.player_queue.rotate(-1)
+            self.current_player=self.player_queue[0]
+        self.update_turn_label()
+
+    def reset_board(self):
+        self.draw_board()
+        self.draw_snakes_ladders()
+        self.players.clear()
+        self.tokens.clear()
+        self.player_queue.clear()
+        self.game_running=False
+        self.roll_btn.config(state="disabled")
+        self.dice_lbl.config(text="-")
+        self.turn_lbl.config(text="Turn: -")
+        self.info_lbl.config(text="Board reset. Click Start to begin.")
+
+# -----------------------
+# Run App
+# -----------------------
+if __name__=="__main__":
+    root = tk.Tk()
+    SnakeLadderGUI(root)
+    root.mainloop()
